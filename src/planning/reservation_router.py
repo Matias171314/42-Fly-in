@@ -1,18 +1,20 @@
 """Dijkstra routing with per-turn zone and connection reservations."""
-from collections import defaultdict
 from heapq import heappop, heappush
 
-from fly_in.network import Link, Network, Step
+from src.network import Link, Network, Step
 
 
 class ReservationRouter:
     """Find routes with Dijkstra, then reserve each route for later drones."""
 
-    def __init__(self, network: Network) -> None:
+    def __init__(
+        self,
+        network: Network
+    ) -> None:
         """Initialize sparse zone and undirected connection reservations."""
-        self.net = network
-        self.occupancy: dict[tuple[str, int], int] = defaultdict(int)
-        self.traffic: dict[tuple[tuple[str, str], int], int] = defaultdict(int)
+        self.network = network
+        self.occupancy: dict[tuple[str, int], int] = {}
+        self.traffic: dict[tuple[tuple[str, str], int], int] = {}
         self.last_arrival = 0
 
     def plan(self) -> list[list[Step]]:
@@ -20,49 +22,35 @@ class ReservationRouter:
         self.occupancy.clear()
         self.traffic.clear()
         self.last_arrival = 0
-        self._check_reachable()
         routes: list[list[Step]] = []
-        for _ in range(self.net.drones):
+        for _ in range(self.network.drones):
             route = self._route()
             self._reserve(route)
             routes.append(route)
         return routes
 
-    def _check_reachable(self) -> None:
-        """Reject disconnected endpoints before time-expanded searching."""
-        seen = {self.net.start}
-        pending = [self.net.start]
-        while pending:
-            source = pending.pop()
-            for target, _ in self.net.neighbors[source]:
-                if (target not in seen
-                        and self.net.zones[target].kind != 'blocked'):
-                    seen.add(target)
-                    pending.append(target)
-        if self.net.end not in seen:
-            raise ValueError('no accessible route from start to end')
-
-    def _space(self, name: str, time: int) -> bool:
+    def _space(
+        self,
+        name: str,
+        time: int
+    ) -> bool:
         """Check occupancy after all departures at the specified turn."""
-        return (name in (self.net.start, self.net.end)
+        return (name in (self.network.start, self.network.end)
                 or self.occupancy.get((name, time), 0)
-                < self.net.zones[name].capacity)
+                < self.network.zones[name].capacity)
 
     def _route(self) -> list[Step]:
         """Find earliest arrival, preferring priority zones on equal costs."""
-        initial = (self.net.start, 0)
-        # Dijkstra explores the earliest turn first. The second value breaks
-        # equal-arrival ties in favor of priority zones.
-        queue = [(0, 0, self.net.start)]
+        initial = (self.network.start, 0)
+        queue = [(0, 0, self.network.start)]
         scores = {initial: 0}
         parents: dict[tuple[str, int], Step] = {}
-        # Once previous drones finish, a simple path is always available.
-        horizon = self.last_arrival + 2 * len(self.net.zones) + 1
+        horizon = self.last_arrival + 2 * len(self.network.zones) + 1
         while queue:
             time, penalty, source = heappop(queue)
             if scores.get((source, time)) != penalty:
                 continue
-            if source == self.net.end:
+            if source == self.network.end:
                 route: list[Step] = []
                 state = (source, time)
                 while state != initial:
@@ -71,11 +59,12 @@ class ReservationRouter:
                     state = (step.source, step.departure)
                 return list(reversed(route))
             options: list[tuple[str, Link | None]] = [
-                (target, link) for target, link in self.net.neighbors[source]
+                (target, link)
+                for target, link in self.network.neighbors[source]
             ]
             options.append((source, None))
             for target, link in options:
-                zone = self.net.zones[target]
+                zone = self.network.zones[target]
                 if zone.kind == 'blocked':
                     continue
                 duration = 2 if link and zone.kind == 'restricted' else 1
@@ -97,11 +86,16 @@ class ReservationRouter:
                 heappush(queue, (arrival, cost, target))
         raise ValueError('unable to schedule a route')
 
-    def _reserve(self, route: list[Step]) -> None:
+    def _reserve(
+        self,
+        route: list[Step]
+    ) -> None:
         """Reserve zone occupancy and every tick of restricted transit."""
         for step in route:
-            self.occupancy[(step.target, step.arrival)] += 1
+            zone_key = (step.target, step.arrival)
+            self.occupancy[zone_key] = self.occupancy.get(zone_key, 0) + 1
             if step.link:
                 for tick in range(step.departure + 1, step.arrival + 1):
-                    self.traffic[(step.link.key, tick)] += 1
+                    link_key = (step.link.key, tick)
+                    self.traffic[link_key] = self.traffic.get(link_key, 0) + 1
         self.last_arrival = max(self.last_arrival, route[-1].arrival)
