@@ -17,11 +17,20 @@ Challenger map can also be selected and uses the same Dijkstra planner.
 make install
 make run                                      # choose a map interactively
 make run MAP=maps/hard/02_capacity_hell.txt
-make run ARGS="--visual --delay 0.3"
 make debug MAP=maps/easy/01_linear_path.txt
 make lint
 make lint-strict
-make clean
+make clean                                    # remove bytecode and caches
+make clean-venv                               # delete the virtual environment
+```
+
+`make clean` removes project bytecode and caches while keeping `.venv`.
+`make clean-venv` deletes `.venv`; recreate it with `make install`.
+The lint targets explicitly exclude `.venv` from flake8. Additional command-line
+options can be passed with `ARGS`, for example:
+
+```sh
+make run MAP=maps/easy/01_linear_path.txt ARGS="--visual"
 ```
 
 Direct execution:
@@ -29,8 +38,8 @@ Direct execution:
 ```sh
 .venv/bin/python main.py                      # menu, including custom map paths
 .venv/bin/python main.py maps/easy/01_linear_path.txt --visual
-.venv/bin/python main.py maps/hard/03_ultimate_challenge.txt --no-visual
-.venv/bin/python main.py maps/medium/02_circular_loop.txt --no-visual
+.venv/bin/python main.py maps/hard/03_ultimate_challenge.txt
+.venv/bin/python main.py maps/medium/02_circular_loop.txt
 ```
 
 The program uses one planner: Dijkstra with per-turn reservations. It finds an
@@ -38,21 +47,15 @@ earliest arrival for each drone given the routes already planned, then reserves
 that route before planning the next drone. It does not guarantee a globally
 minimum last-delivery turn. Ctrl+C cancels planning or playback cleanly.
 
-Options:
-
-| Option | Behavior |
-| --- | --- |
-| `--visual` | Enable colors on the movement tokens |
-| `--no-visual` | Print plain movement lines |
-| `--delay SECONDS` | Playback delay; finite nonnegative value |
-| `--color auto\|always\|never` | ANSI color policy, default `auto` |
-
-Color is enabled automatically when stdout is a terminal. There is no playback
-delay unless requested. Menu prompts and diagnostics use stderr; stdout contains
-only movement lines. Redirecting stdout disables automatic color. For example:
+The optional `--visual` flag enables colors for movements and the menu.
+Without `--visual`, output stays in the plain subject format. The optional
+load display is kept as commented code for the defense, not an active flag. `parse_arguments()` defines the arguments,
+while `main()` selects the map and coordinates the simulation. Menu prompts
+and errors go to stderr, and stdout contains only
+movement lines:
 
 ```sh
-.venv/bin/python main.py maps/easy/01_linear_path.txt --no-visual > moves.txt
+.venv/bin/python main.py maps/easy/01_linear_path.txt > moves.txt
 ```
 
 The menu works from any working directory. It lists the nine mandatory maps and the optional Challenger map,
@@ -61,15 +64,14 @@ accepts `p` for a custom path and `q` to quit. EOF also exits cleanly.
 ## Project structure
 
 ```text
-main.py                         # small launcher
-fly_in/
-  application.py                # command-line options and coordination
+main.py                         # main(), arguments and coordination
+src/
   map_parser.py                 # syntax and network validation
   network.py                    # typed Zone, Link, Network and Step models
   planning/
     reservation_router.py       # Dijkstra with per-turn reservations
   presentation/
-    color_palette.py            # webcolors / ANSI palette
+    color_palette.py            # standard ANSI color codes
     map_menu.py                 # supplied-map and custom-path selection
     movement_renderer.py        # one movement line per turn
 maps/                           # supplied input files
@@ -77,18 +79,19 @@ Makefile
 requirements.txt
 ```
 
-Application code is organized as a Python package; the launcher, Makefile and
-README stay at the repository root. Both `python main.py` and `python -m fly_in`
-use the same application.
+Classes that store data use explicit `__init__` constructors. Methods have
+typed parameters on separate lines and short docstrings. The parser, models, routing and display classes
+live in `src/`. The root
+`main.py` defines `main()`, which reads arguments and coordinates the simulation.
 
 ## Parser
 
 The parser uses string operations (`partition`, `split`, `startswith`,
-`endswith`, `isascii` and `isdecimal`), without regular expressions.
+`endswith` and digit checks), without regular expressions.
 
 The first nonempty, noncomment definition must be `nb_drones: <positive_integer>`.
 Exactly one start and end are required. Names are unique and cannot contain
-dashes or whitespace; punctuation and Unicode names are supported. Coordinates
+dashes or whitespace; punctuation is supported. Coordinates
 are signed decimal integers; the subject does not require unique coordinates.
 Connections must reference previously declared zones, and `a-b` duplicates
 `b-a`. Self-connections are accepted because the subject does not prohibit them.
@@ -100,9 +103,10 @@ single-word colors are accepted. `#` introduces comments. Blocked endpoints are
 rejected because no valid delivery route can use a blocked zone.
 
 Parsing errors report a line and cause; missing definitions report end of file.
-I/O errors, invalid encodings and disconnected endpoints produce a clear error
-and exit status 1 without a traceback. Invalid CLI arguments use exit status 2;
-Ctrl+C returns 130. There is no artificial fleet-count limit, although available
+I/O errors and disconnected endpoints produce a clear error
+without a traceback. The entry point calls `main()` directly, so its returned
+numbers are not used as process exit codes. Invalid CLI arguments use exit
+status 2; Ctrl+C displays an interruption message. There is no artificial fleet-count limit, although available
 memory and computation time remain practical limits.
 
 ## Algorithm and implementation strategy
@@ -153,20 +157,30 @@ There are no graph libraries, flow solvers or heuristic distance functions.
 
 Each turn prints exactly one line of space-separated `D<ID>-destination` tokens.
 Colors use the destination zone's map color; a token naming a connection is cyan.
-There are no tables, progress bars, screen clearing, load suffixes or summaries.
-The `webcolors` library resolves CSS3 names to RGB values; ANSI escape sequences
-apply those RGB colors in the terminal. Unknown single-word names remain valid
-and use white. Colors never affect routing.
+There are no tables, progress bars, screen clearing, summaries or load suffixes.
+A dictionary in `color_palette.py` maps names to standard ANSI escape codes,
+for example `red` to `\033[31m`. Each colored token ends with `\033[0m` to
+reset the terminal. Names such as orange and gold use the nearest basic color.
+Unknown single-word names remain valid and use white. Colors never affect routing.
+There are no external runtime dependencies.
 
-`mypy.ini` enables analysis of the type annotations in the installed `webcolors`
-source. The project needs no local `.pyi` stub or ignored import errors.
+The Makefile excludes `.venv` from flake8 directly; no separate configuration
+file is needed. The only dependencies are `flake8` and `mypy`, which are
+development tools required by the subject.
 
-For a review-time change that displays occupancy such as `[0/inf]` or `[1/2]`,
-see the disabled `LOAD FOR EVALUATION` comments in
-`fly_in/presentation/movement_renderer.py`. They show where to maintain drone
-positions, apply all movements simultaneously, count occupants and append the
-capacity. Transit does not count toward a zone's load. This is intentionally
-commented out to preserve the required output format.
+The load display is prepared as commented code marked `LOAD FOR DEFENSE`.
+To enable it during the defense:
+
+1. In `main.py`, uncomment the `--load` argument and `show_load=args.load`.
+2. In `movement_renderer.py`, uncomment the `show_load` parameter, its
+   assignment and the three marked blocks for positions, counting and output.
+3. Run `python main.py <map> --load`, optionally adding `--visual`.
+
+The prepared code counts occupancy using a dictionary and a loop, with no
+additional imports. It applies all simultaneous moves before counting.
+For example, `[2/3]` means two drones occupy a hub with capacity three;
+start and end use `inf`. Transit does not count toward hub occupancy.
+The flag is unavailable until these comments are enabled.
 
 ### External browser visualizer
 
@@ -176,7 +190,7 @@ external replay tool for maps and movement logs. Its hosted page was reachable
 during this review. To inspect this program's output:
 
 ```sh
-.venv/bin/python main.py maps/medium/02_circular_loop.txt --no-visual > /tmp/fly-in-moves.txt
+.venv/bin/python main.py maps/medium/02_circular_loop.txt > /tmp/fly-in-moves.txt
 ```
 
 1. Open the linked visualizer and expand its configuration inputs.
@@ -240,7 +254,7 @@ optimality for arbitrary networks.
 To reproduce a count:
 
 ```sh
-.venv/bin/python main.py maps/challenger/01_the_impossible_dream.txt --no-visual | wc -l
+.venv/bin/python main.py maps/challenger/01_the_impossible_dream.txt | wc -l
 # 43
 ```
 
@@ -252,7 +266,7 @@ three-drone example takes 5 turns with this scheduler versus an optimum of 4,
 which illustrates the tradeoff of keeping the algorithm simple.
 Additional cases exercise parser
 acceptance/rejection, congestion, two-turn restricted arrivals, repeated
-planning, menu input, EOF, invalid paths/encoding, colors and CLI arguments.
+planning, menu input, EOF, invalid paths, colors and CLI arguments.
 
 The parser and output review also checked:
 
@@ -280,8 +294,7 @@ assumed.
 ## Resources
 
 - [Python heap queues](https://docs.python.org/3/library/heapq.html)
-- [Python dataclasses](https://docs.python.org/3/library/dataclasses.html)
-- [webcolors documentation](https://webcolors.readthedocs.io/en/latest/contents.html)
+- [Python classes](https://docs.python.org/3/tutorial/classes.html)
 - Dijkstra, E. W. (1959), *A note on two problems in connexion with graphs*.
 - Silver, D. (2005), *Cooperative Pathfinding*, AIIDE.
 - Supplied Fly-in subject v1.6 and map archive.
