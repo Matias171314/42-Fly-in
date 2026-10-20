@@ -59,7 +59,7 @@ class MapMenu:
                 print(f'\n  {level.upper()}', file=sys.stderr)
                 previous = level
             name = path.stem.replace('_', ' ')
-            print(f'  {number:>2}. {name}', file=sys.stderr)
+            print(f'  {number}. {name}', file=sys.stderr)
         print('\n  p. Custom map path\n  q. Quit', file=sys.stderr)
 
     def _read(

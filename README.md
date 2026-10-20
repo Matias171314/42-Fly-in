@@ -15,6 +15,9 @@ Challenger map can also be selected and uses the same Dijkstra planner.
 
 ```sh
 make install
+source .venv/bin/activate
+python3 main.py /absolute/path/to/map.txt
+
 make run                                      # choose a map interactively
 make run MAP=maps/hard/02_capacity_hell.txt
 make debug MAP=maps/easy/01_linear_path.txt
@@ -33,13 +36,15 @@ options can be passed with `ARGS`, for example:
 make run MAP=maps/easy/01_linear_path.txt ARGS="--visual"
 ```
 
-Direct execution:
+After `make install`, activate the virtual environment with
+`source .venv/bin/activate`. Then run from the repository root, using either
+an absolute or a relative map path:
 
 ```sh
-.venv/bin/python main.py                      # menu, including custom map paths
-.venv/bin/python main.py maps/easy/01_linear_path.txt --visual
-.venv/bin/python main.py maps/hard/03_ultimate_challenge.txt
-.venv/bin/python main.py maps/medium/02_circular_loop.txt
+python3 main.py                      # menu, including custom map paths
+python3 main.py maps/easy/01_linear_path.txt --visual
+python3 main.py maps/hard/03_ultimate_challenge.txt
+python3 main.py maps/medium/02_circular_loop.txt
 ```
 
 The program uses one planner: Dijkstra with per-turn reservations. It finds an
@@ -48,14 +53,14 @@ that route before planning the next drone. It does not guarantee a globally
 minimum last-delivery turn. Ctrl+C cancels planning or playback cleanly.
 
 The optional `--visual` flag enables colors for movements and the menu.
-Without `--visual`, output stays in the plain subject format. The optional
-load display is kept as commented code for the defense, not an active flag. `parse_arguments()` defines the arguments,
+Without `--visual`, output stays in the plain subject format.
+`parse_arguments()` defines the arguments,
 while `main()` selects the map and coordinates the simulation. Menu prompts
 and errors go to stderr, and stdout contains only
 movement lines:
 
 ```sh
-.venv/bin/python main.py maps/easy/01_linear_path.txt > moves.txt
+python3 main.py maps/easy/01_linear_path.txt > moves.txt
 ```
 
 The menu works from any working directory. It lists the nine mandatory maps and the optional Challenger map,
@@ -71,7 +76,7 @@ src/
   planning/
     reservation_router.py       # Dijkstra with per-turn reservations
   presentation/
-    color_palette.py            # standard ANSI color codes
+    color_palette.py            # CSS names and ANSI RGB colors
     map_menu.py                 # supplied-map and custom-path selection
     movement_renderer.py        # one movement line per turn
 maps/                           # supplied input files
@@ -157,40 +162,28 @@ There are no graph libraries, flow solvers or heuristic distance functions.
 
 Each turn prints exactly one line of space-separated `D<ID>-destination` tokens.
 Colors use the destination zone's map color; a token naming a connection is cyan.
-There are no tables, progress bars, screen clearing, summaries or load suffixes.
-A dictionary in `color_palette.py` maps names to standard ANSI escape codes,
-for example `red` to `\033[31m`. Each colored token ends with `\033[0m` to
-reset the terminal. Names such as orange and gold use the nearest basic color.
-Unknown single-word names remain valid and use white. Colors never affect routing.
-There are no external runtime dependencies.
+Output contains only movement tokens, with one line per turn.
+`color_palette.py` uses `webcolors` to convert CSS color names to RGB values
+and ANSI RGB escape codes to display them in terminals with true color support.
+Each colored token ends with `\033[0m` to reset the terminal.
+`rainbow` cycles through seven colors, one per character. Other unknown
+single-word names remain valid and use white.
+Colors never affect routing.
 
 The Makefile excludes `.venv` from flake8 directly; no separate configuration
-file is needed. The only dependencies are `flake8` and `mypy`, which are
-development tools required by the subject.
-
-The load display is prepared as commented code marked `LOAD FOR DEFENSE`.
-To enable it during the defense:
-
-1. In `main.py`, uncomment the `--load` argument and `show_load=args.load`.
-2. In `movement_renderer.py`, uncomment the `show_load` parameter, its
-   assignment and the three marked blocks for positions, counting and output.
-3. Run `python main.py <map> --load`, optionally adding `--visual`.
-
-The prepared code counts occupancy using a dictionary and a loop, with no
-additional imports. It applies all simultaneous moves before counting.
-For example, `[2/3]` means two drones occupy a hub with capacity three;
-start and end use `inf`. Transit does not count toward hub occupancy.
-The flag is unavailable until these comments are enabled.
+file is needed. `webcolors` is the runtime dependency; `flake8` and `mypy`
+are development tools required by the subject. The strict mypy target disables
+only `import-untyped` because `webcolors` does not ship type annotations;
+project code is still checked in strict mode.
 
 ### External browser visualizer
 
 [Fly-in Visualizer 42](https://fly-in-visualizer-42.vercel.app/) by
 [Youssefelhaouil](https://github.com/Youssefelhaouil/FLY_IN_VISUALIZER_42) is an
-external replay tool for maps and movement logs. Its hosted page was reachable
-during this review. To inspect this program's output:
+external replay tool for maps and movement logs. To inspect this program's output:
 
 ```sh
-.venv/bin/python main.py maps/medium/02_circular_loop.txt > /tmp/fly-in-moves.txt
+python3 main.py maps/medium/02_circular_loop.txt > /tmp/fly-in-moves.txt
 ```
 
 1. Open the linked visualizer and expand its configuration inputs.
@@ -254,7 +247,7 @@ optimality for arbitrary networks.
 To reproduce a count:
 
 ```sh
-.venv/bin/python main.py maps/challenger/01_the_impossible_dream.txt | wc -l
+python3 main.py maps/challenger/01_the_impossible_dream.txt | wc -l
 # 43
 ```
 
@@ -277,7 +270,8 @@ The parser and output review also checked:
 - 39 comment, whitespace and metadata-order combinations. Commented definitions
   cannot supply a missing real definition. Invalid text inside comments is ignored.
 - 45 malformed or inconsistent maps through the actual CLI. Each returned status
-  1, an explanatory error, no traceback and no partial movement output.
+  0 with the direct `main()` entry point, an explanatory error on stderr,
+  no traceback and no partial movement output.
 - 2,000 deterministic mutation inputs: 47 coherent accepted maps and 1,953 clear
   rejections, with no unexpected exceptions. Accepted practical fleets were replayed.
 
@@ -301,6 +295,4 @@ assumed.
 
 AI was used to interpret requirements, implement and review the parser, models,
 planners, terminal menu and movement renderer, build configuration and documentation, and create
-independent validation programs. Before evaluation, practice explaining
-Dijkstra's priority queue, time states, reservations and the limitations of
-greedy fleet scheduling.
+independent validation programs.

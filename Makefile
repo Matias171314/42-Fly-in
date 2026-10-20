@@ -1,6 +1,4 @@
 PYTHON = .venv/bin/python
-MAP ?=
-ARGS ?=
 
 install:
 	python3 -m venv .venv
@@ -28,6 +26,6 @@ lint:
 
 lint-strict:
 	$(PYTHON) -m flake8 . --extend-exclude=.venv
-	$(PYTHON) -m mypy . --strict
+	$(PYTHON) -m mypy . --strict --disable-error-code=import-untyped
 
 .PHONY: install run debug clean clean-venv lint lint-strict
